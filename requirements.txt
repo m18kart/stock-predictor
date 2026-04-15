@@ -1,0 +1,10 @@
+yfinance
+pandas
+numpy
+scikit-learn
+xgboost
+onnxmltools
+onnxruntime
+seaborn
+matplotlib
+skl2onnx

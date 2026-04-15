@@ -1,0 +1,28 @@
+# Data files — download locally with train.py
+*.csv
+*.onnx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# C++ build artifacts
+cpp/stock_predictor
+cpp/*.o
+cpp/*.dSYM/
+
+# Generated plots
+*.png
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
