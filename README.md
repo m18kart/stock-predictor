@@ -1,5 +1,10 @@
 # Real-Time Stock Price Predictor
 
+![Language](https://img.shields.io/badge/C++-17-00599C?style=flat&logo=cplusplus)
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green?style=flat)
+![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=flat)
+
 A full-stack ML project that trains a stock direction classifier in Python and runs low-latency inference in C++ — the same architecture used in production quant systems.
 
 ```
@@ -133,6 +138,13 @@ cp ../python/AAPL.csv .
   SUMMARY  BUY: 179   SELL: 181   HOLD: 117
 ------------------------------------------------------------
 ```
+
+## Backtest Results
+![Backtest](assets/backtest.png)
+
+## Feature Importance
+![Features](assets/feature_importance.png)
+
 ---
 
 ## C++ Concepts Covered
