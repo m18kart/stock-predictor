@@ -133,7 +133,11 @@ cp ../python/AAPL.csv .
   SUMMARY  BUY: 179   SELL: 181   HOLD: 117
 ------------------------------------------------------------
 ```
+## Backtest Results
+![Backtest](assets/backtest.png)
 
+## Feature Importance
+![Features](assets/feature_importance.png)
 ---
 
 ## C++ Concepts Covered
