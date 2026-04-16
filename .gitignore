@@ -19,7 +19,6 @@ cpp/*.o
 cpp/*.dSYM/
 
 # Generated plots
-*.png
 
 # IDE
 .vscode/
