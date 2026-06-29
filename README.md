@@ -28,23 +28,23 @@ A full-stack ML engineering project that trains a **transfer learning stock clas
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                    Python Training Pipeline                       │
+│                    Python Training Pipeline                      │
 │                                                                  │
 │  yfinance         Feature Engineering        Transfer Learning   │
-│  ^GSPC + AAPL → RSI · MACD · Bollinger · SMA → Parent → Child  │
+│  ^GSPC + AAPL → RSI · MACD · Bollinger · SMA → Parent → Child    │
 │                                                                  │
-│  MLflow Tracking → Experiment Comparison → ONNX Export          │
-│  Docker Container → Reproducible Training Environment           │
-│  GitHub Actions  → Auto-train + Validate on every push          │
+│  MLflow Tracking → Experiment Comparison → ONNX Export           │
+│  Docker Container → Reproducible Training Environment            │
+│  GitHub Actions  → Auto-train + Validate on every push           │
 └───────────────────────────┬──────────────────────────────────────┘
                             │  model_child_AAPL.onnx
                             │  scaler_child_AAPL.csv
 ┌───────────────────────────▼──────────────────────────────────────┐
-│                    C++ Inference Engine                           │
+│                    C++ Inference Engine                          │
 │                                                                  │
 │  CSVLoader → PriceWindow → FeatureCalculator                     │
 │           → ModelRunner (ONNX Runtime, dual-model)               │
-│           → BUY / SELL / HOLD  @  ~9 µs/bar                     │
+│           → BUY / SELL / HOLD  @  ~9 µs/bar                      │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
