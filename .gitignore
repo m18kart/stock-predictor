@@ -25,3 +25,26 @@ cpp/*.dSYM/
 .idea/
 *.swp
 .DS_Store
+*.json
+
+# Loose plot files
+backtest.png
+eda.png
+feature_importance.png
+transfer_report.png
+correlation.png
+confusion_matrices.png
+
+# Temp files
+child_booster.json
+price_predict.py
+project.code-workspace
+*.db
+mlflow.db
+
+# Model files in root (should live in cpp/)
+model.onnx
+model_parent_GSPC.onnx
+model_child_AAPL.onnx
+scaler_params.csv
+scaler_child_AAPL.csv

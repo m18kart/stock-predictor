@@ -1,0 +1,39 @@
+# ============================================================
+#  docker-compose.yml — Stock Predictor
+#  Run everything with: docker compose up
+# ============================================================
+
+services:
+
+  # ── Training + MLflow UI ───────────────────────────────────
+  train:
+    build: .
+    container_name: stock-predictor-train
+    ports:
+      - "5000:5000"         # MLflow UI → http://localhost:5000
+    volumes:
+      # Mount local folders so models/plots are saved to your machine
+      - ./models:/app/models
+      - ./plots:/app/plots
+      - ./mlflow.db:/app/mlflow.db
+    environment:
+      - MLFLOW_TRACKING_URI=sqlite:////app/mlflow.db
+    restart: unless-stopped
+
+  # ── MLflow UI only (use after training is done) ───────────
+  mlflow:
+    image: python:3.11-slim
+    container_name: stock-predictor-mlflow
+    ports:
+      - "5001:5001"         # separate port to avoid conflict
+    volumes:
+      - ./mlflow.db:/app/mlflow.db
+    working_dir: /app
+    command: >
+      sh -c "pip install mlflow --quiet &&
+             mlflow ui
+               --backend-store-uri sqlite:////app/mlflow.db
+               --host 0.0.0.0
+               --port 5001"
+    profiles:
+      - ui                  # only starts with: docker compose --profile ui up

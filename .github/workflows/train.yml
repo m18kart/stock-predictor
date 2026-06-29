@@ -1,0 +1,159 @@
+# ============================================================
+#  GitHub Actions — Stock Predictor CI/CD Pipeline
+#  Triggers on every push to main that touches python/ files
+#
+#  What it does:
+#    1. Sets up Python 3.11
+#    2. Installs dependencies
+#    3. Trains parent + child models (transfer learning)
+#    4. Validates model accuracy > 52% (better than random)
+#    5. Uploads ONNX models as downloadable artifacts
+#    6. Posts training summary to the Actions log
+# ============================================================
+
+name: Train and Validate Models
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'python/**'          # only triggers when Python code changes
+      - 'requirements.txt'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'python/**'
+  workflow_dispatch:         # allows manual trigger from GitHub UI
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30      # fail if training takes too long
+
+    steps:
+      # ── 1. Checkout code ───────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python 3.11 ──────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'       # caches pip packages between runs
+
+      # ── 3. Install dependencies ────────────────────────────
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            mlflow \
+            yfinance \
+            xgboost \
+            onnxmltools \
+            onnxruntime \
+            scikit-learn \
+            pandas \
+            numpy \
+            matplotlib \
+            seaborn
+
+      # ── 4. Train models ────────────────────────────────────
+      - name: Train parent and child models
+        env:
+          MLFLOW_TRACKING_URI: sqlite:///mlflow.db
+        run: |
+          cd $GITHUB_WORKSPACE
+          python python/transfer_learning.py 2>&1 | tee training.log
+          echo "Training complete"
+
+      # ── 5. Validate model accuracy ─────────────────────────
+      - name: Validate model accuracy
+        run: |
+          python - <<'EOF'
+          import mlflow
+          import sys
+
+          mlflow.set_tracking_uri("sqlite:///mlflow.db")
+          client = mlflow.tracking.MlflowClient()
+          exp = client.get_experiment_by_name("stock-transfer-learning")
+
+          if exp is None:
+              print("ERROR: No experiment found")
+              sys.exit(1)
+
+          runs = client.search_runs(
+              exp.experiment_id,
+              filter_string="tags.mlflow.runName = 'child_AAPL'",
+              order_by=["start_time DESC"],
+              max_results=1
+          )
+
+          if not runs:
+              print("ERROR: No child model run found")
+              sys.exit(1)
+
+          run = runs[0]
+          acc = run.data.metrics.get('child_accuracy', 0)
+          auc = run.data.metrics.get('child_roc_auc', 0)
+          lift = run.data.metrics.get('accuracy_lift', 0)
+
+          print(f"Child model accuracy : {acc:.4f}")
+          print(f"Child model ROC-AUC  : {auc:.4f}")
+          print(f"Accuracy lift        : {lift:+.4f}")
+
+          # Fail the pipeline if accuracy drops below threshold
+          ACCURACY_THRESHOLD = 0.52   # must beat random (0.50)
+          if acc < ACCURACY_THRESHOLD:
+              print(f"FAILED: Accuracy {acc:.4f} below threshold {ACCURACY_THRESHOLD}")
+              sys.exit(1)
+
+          print(f"PASSED: Model meets accuracy threshold")
+          EOF
+
+      # ── 6. Upload ONNX models as artifacts ─────────────────
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-models-${{ github.sha }}
+          path: |
+            model_child_AAPL.onnx
+            model_parent_GSPC.onnx
+            scaler_child_AAPL.csv
+            transfer_report.png
+          retention-days: 30   # keep artifacts for 30 days
+
+      # ── 7. Upload training log ─────────────────────────────
+      - name: Upload training log
+        if: always()           # upload even if training failed
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-log-${{ github.sha }}
+          path: training.log
+          retention-days: 7
+
+      # ── 8. Print summary ───────────────────────────────────
+      - name: Print training summary
+        if: always()
+        run: |
+          echo "========================================"
+          echo "  Stock Predictor — Training Summary"
+          echo "========================================"
+          echo "  Commit  : ${{ github.sha }}"
+          echo "  Branch  : ${{ github.ref_name }}"
+          echo "  Trigger : ${{ github.event_name }}"
+          echo "========================================"
+          python - <<'EOF'
+          import mlflow, sys
+          mlflow.set_tracking_uri("sqlite:///mlflow.db")
+          client = mlflow.tracking.MlflowClient()
+          exp = client.get_experiment_by_name("stock-transfer-learning")
+          if exp:
+              runs = client.search_runs(exp.experiment_id,
+                                        order_by=["start_time DESC"],
+                                        max_results=2)
+              for r in runs:
+                  print(f"\n  Run: {r.info.run_name}")
+                  for k, v in sorted(r.data.metrics.items()):
+                      print(f"    {k:30s}: {v:.4f}")
+          EOF

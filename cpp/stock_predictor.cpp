@@ -219,52 +219,45 @@ std::string signalToString(Signal s) {
 
 class ModelRunner {
 public:
-    explicit ModelRunner(const std::string& modelPath,
-                         const std::string& scalerPath = "scaler_params.csv")
+    explicit ModelRunner(const std::string& childModelPath,
+                         const std::string& parentModelPath = "model_parent_GSPC.onnx",
+                         const std::string& scalerPath = "scaler_child_AAPL.csv")
         : env_(ORT_LOGGING_LEVEL_WARNING, "stock"),
-          session_(env_, modelPath.c_str(), Ort::SessionOptions{})
+          childSession_(env_, childModelPath.c_str(), Ort::SessionOptions{}),
+          parentSession_(env_, parentModelPath.c_str(), Ort::SessionOptions{})
     {
         loadScaler(scalerPath);
-        std::cout << "[ModelRunner] Loaded model: " << modelPath << "\n";
-        std::cout << "[ModelRunner] Loaded scaler: " << scalerPath << "\n\n";
+        std::cout << "[ModelRunner] Child  : " << childModelPath << "\n";
+        std::cout << "[ModelRunner] Parent : " << parentModelPath << "\n";
+        std::cout << "[ModelRunner] Scaler : " << scalerPath << "\n\n";
     }
 
     Signal classify(const FeatureVector& fv) {
-        // Step 1: scale features the same way Python's StandardScaler did
-        std::vector<float> input = scaleFeatures(fv);
+        // Step 1 — get parent probability (8 features)
+        std::vector<float> baseInput = scaleFeatures(fv, 8);
+        float parentProb = runInference(parentSession_, baseInput, "label",
+                                        /*get_prob=*/true);
 
-        // Step 2: create input tensor
-        std::array<int64_t, 2> shape = {1, (int64_t)input.size()};
-        Ort::MemoryInfo memInfo = Ort::MemoryInfo::CreateCpu(
-        OrtArenaAllocator, OrtMemTypeDefault);
-        Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
-        memInfo, input.data(), input.size(),
-        shape.data(), shape.size());
+        // Step 2 — build 9-feature input for child
+        std::vector<float> childInput = scaleFeatures(fv, 8);
+        // Scale parent_prob using scaler row 9
+        float scaledParentProb = (parentProb - means_[8]) / scales_[8];
+        childInput.push_back(scaledParentProb);
 
-        const char* inputNames[]  = {"float_input"};
-        const char* outputNames[] = {"label", "probabilities"};
+        // Step 3 — run child inference
+        float childProb = runInference(childSession_, childInput, "probabilities",
+                                        /*get_prob=*/true);
 
-        Ort::RunOptions runOptions;
-        auto outputs = session_.Run(
-            runOptions,
-            inputNames,  &inputTensor, 1,
-            outputNames, 2);   // fetch both outputs
-
-        // Get probability of UP (class 1)
-        float* probs = outputs[1].GetTensorMutableData<float>();
-        float probUp = probs[1];   // index 0 = DOWN, index 1 = UP
-
-        // HOLD zone: model is not confident enough
-        if (probUp > 0.60f) return Signal::BUY;
-        if (probUp < 0.40f) return Signal::SELL;
+        if (childProb > 0.62f) return Signal::BUY;
+        if (childProb < 0.38f) return Signal::SELL;
         return Signal::HOLD;
-        }
+    }
 
 private:
     Ort::Env     env_;
-    mutable Ort::Session session_;
+    Ort::Session childSession_;
+    Ort::Session parentSession_;
 
-    // Scaler params loaded from scaler_params.csv
     std::vector<double> means_;
     std::vector<double> scales_;
 
@@ -272,10 +265,8 @@ private:
         std::ifstream file(path);
         if (!file.is_open())
             throw std::runtime_error("Cannot open scaler: " + path);
-
         std::string line;
-        std::getline(file, line); // skip header: feature,mean,scale
-
+        std::getline(file, line); // skip header
         while (std::getline(file, line)) {
             std::istringstream ss(line);
             std::string feature, mean, scale;
@@ -288,23 +279,41 @@ private:
         std::cout << "[Scaler] Loaded " << means_.size() << " features\n";
     }
 
-    // Apply StandardScaler: z = (x - mean) / scale
-    std::vector<float> scaleFeatures(const FeatureVector& fv) const {
+    // Scale first n features using StandardScaler params
+    std::vector<float> scaleFeatures(const FeatureVector& fv, size_t n) const {
         std::vector<double> raw = {
-            fv.sma14,
-            fv.sma50,
-            fv.rsi14,
-            fv.macd,
-            fv.bollingerW,
-            fv.deviation,
-            fv.volumeChange,
-            fv.hlRange
+            fv.sma14, fv.sma50, fv.rsi14, fv.macd,
+            fv.bollingerW, fv.deviation, fv.volumeChange, fv.hlRange
         };
-
-        std::vector<float> scaled(raw.size());
-        for (size_t i = 0; i < raw.size(); ++i)
+        std::vector<float> scaled(n);
+        for (size_t i = 0; i < n; ++i)
             scaled[i] = static_cast<float>((raw[i] - means_[i]) / scales_[i]);
         return scaled;
+    }
+
+    // Run inference and return probability of class 1 (UP)
+    float runInference(Ort::Session& session,
+                       std::vector<float>& input,
+                       const char* outputName,
+                       bool get_prob) {
+        std::array<int64_t, 2> shape = {1, (int64_t)input.size()};
+        Ort::MemoryInfo memInfo = Ort::MemoryInfo::CreateCpu(
+            OrtArenaAllocator, OrtMemTypeDefault);
+        Ort::Value tensor = Ort::Value::CreateTensor<float>(
+            memInfo, input.data(), input.size(),
+            shape.data(), shape.size());
+
+        const char* inputNames[]  = {"float_input"};
+        const char* outputNames[] = {"label", "probabilities"};
+        Ort::RunOptions runOptions;
+
+        auto outputs = session.Run(runOptions,
+                                    inputNames, &tensor, 1,
+                                    outputNames, 2);
+
+        // Extract probability of class 1 (UP)
+        float* probs = outputs[1].GetTensorMutableData<float>();
+        return probs[1];  // index 0 = DOWN, index 1 = UP
     }
 };
 

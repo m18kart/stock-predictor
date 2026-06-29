@@ -1,0 +1,53 @@
+# ============================================================
+#  .dockerignore — keeps Docker image small and clean
+#  These files are excluded from the build context
+# ============================================================
+
+# Virtual environments
+.venv/
+.venv311/
+venv/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# C++ binary and build artifacts
+stock_predictor
+cpp/
+*.o
+*.dSYM/
+
+# Data files (downloaded at runtime by yfinance)
+*.csv
+
+# Model files (generated at runtime)
+*.onnx
+*.json
+child_booster.json
+
+# MLflow (mounted as volume)
+mlflow.db
+mlruns/
+
+# Plots (generated at runtime)
+*.png
+assets/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+.gitkeep
+
+# Misc
+price_predict.py
+README.md
