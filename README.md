@@ -10,7 +10,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=flat)
 
-A full-stack ML engineering project that trains a **transfer learning stock classifier** in Python and runs **low-latency inference in C++** — the same architecture used in production quantitative trading systems.
+A full MLOps lifecycle project — transfer learning, experiment tracking, containerization, CI/CD, and drift detection — wrapped around a low-latency C++ inference engine. The same architecture pattern used in production quantitative trading systems.
 
 ```
   [BUY ]  2024-12-16  O=249.68  H=250.01  L=246.30  C=246.64  V=51694800
@@ -28,23 +28,24 @@ A full-stack ML engineering project that trains a **transfer learning stock clas
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                    Python Training Pipeline                      │
+│                    Python Training Pipeline                       │
 │                                                                  │
 │  yfinance         Feature Engineering        Transfer Learning   │
-│  ^GSPC + AAPL → RSI · MACD · Bollinger · SMA → Parent → Child    │
+│  ^GSPC + AAPL → RSI · MACD · Bollinger · SMA → Parent → Child  │
 │                                                                  │
-│  MLflow Tracking → Experiment Comparison → ONNX Export           │
-│  Docker Container → Reproducible Training Environment            │
-│  GitHub Actions  → Auto-train + Validate on every push           │
+│  MLflow Tracking → Experiment Comparison → ONNX Export          │
+│  Drift Monitor   → PSI + KS Tests        → Retrain Verdict      │
+│  Docker Container → Reproducible Training Environment           │
+│  GitHub Actions  → Auto-train + Validate on every push          │
 └───────────────────────────┬──────────────────────────────────────┘
                             │  model_child_AAPL.onnx
                             │  scaler_child_AAPL.csv
 ┌───────────────────────────▼──────────────────────────────────────┐
-│                    C++ Inference Engine                          │
+│                    C++ Inference Engine                           │
 │                                                                  │
 │  CSVLoader → PriceWindow → FeatureCalculator                     │
 │           → ModelRunner (ONNX Runtime, dual-model)               │
-│           → BUY / SELL / HOLD  @  ~9 µs/bar                      │
+│           → BUY / SELL / HOLD  @  ~9 µs/bar                     │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -60,9 +61,28 @@ Two-stage training: broad market first, individual stock second.
 | Parent alone on AAPL | Baseline — no fine-tuning | 3 years AAPL | 53.19% | — |
 | **Child (transfer learning)** | **Final model** | **3 years AAPL** | **51.77%** | **0.536** |
 
-> Both models beat the 50% random baseline. The parent captures macro market behaviour (rate sensitivity, volatility regimes); the child inherits this knowledge and specialises on AAPL using the parent's probability as a 9th input feature — the XGBoost equivalent of fine-tuning a neural network.
+> The parent captures macro market behaviour (rate sensitivity, volatility regimes); the child inherits this and specialises on AAPL using the parent's probability as a 9th input feature — the XGBoost equivalent of fine-tuning a neural network.
 
 ![Transfer Report](assets/transfer_report.png)
+
+---
+
+## 🔍 Drift Detection
+
+Compares the model's training distribution (reference) against the most recent 30 trading days (current) using PSI and Kolmogorov-Smirnov tests across 6 normalized features. Raw price-scale features (SMA14, SMA50) are computed but excluded from the verdict — they always show apparent "drift" for a trending stock, which is a known pitfall in naive drift detection setups.
+
+| Feature | PSI | KS p-value | Verdict |
+|---|---|---|---|
+| RSI14 | 0.926 | 0.009 | Drifted |
+| MACD | 1.947 | 0.000 | Drifted |
+| BollingerW | 1.625 | 0.000 | Drifted |
+| Deviation | 0.321 | 0.501 | Drifted |
+| VolumeChange | 0.308 | 0.771 | Drifted |
+| HL_Range | 0.370 | 0.023 | Drifted |
+
+**Result: 6/6 normalized features drifted → Retrain recommended.** This correctly identified that AAPL's recent 30-day window has entered a stronger, more volatile trending regime than the model's 3-year training period — a legitimate, actionable signal.
+
+![Drift Report](assets/drift_report.png)
 
 ---
 
@@ -102,6 +122,7 @@ Signal distribution on 477 bars: **BUY 179 · SELL 181 · HOLD 117**
 - Docker containerization — one command reproduces training
 - GitHub Actions CI/CD — auto-trains and validates accuracy on every push
 - Accuracy threshold gate: pipeline fails if model drops below 52%
+- Drift detection — PSI + KS tests with price-scale feature exclusion, JSON report output, CI/CD-compatible exit codes
 
 ---
 
@@ -116,7 +137,8 @@ stock-predictor/
 │   ├── backtest.png
 │   ├── eda.png
 │   ├── feature_importance.png
-│   └── transfer_report.png        # parent vs child accuracy comparison
+│   ├── transfer_report.png        # parent vs child accuracy comparison
+│   └── drift_report.png           # PSI drift chart per feature
 ├── cpp/
 │   ├── stock_predictor.cpp        # C++ inference engine (7 classes)
 │   ├── model_child_AAPL.onnx      # fine-tuned child model
@@ -124,7 +146,8 @@ stock-predictor/
 │   └── scaler_child_AAPL.csv      # StandardScaler params for C++
 ├── python/
 │   ├── stock_prediction.py        # EDA + baseline model training
-│   └── transfer_learning.py       # transfer learning pipeline + MLflow
+│   ├── transfer_learning.py       # transfer learning pipeline + MLflow
+│   └── drift_monitor.py           # PSI/KS drift detection
 ├── Dockerfile                     # containerized training environment
 ├── docker-compose.yml
 ├── requirements.txt
@@ -158,6 +181,9 @@ python python/stock_prediction.py
 
 # Transfer learning (parent ^GSPC → child AAPL)
 python python/transfer_learning.py
+
+# Check for data drift
+python python/drift_monitor.py AAPL
 
 # View experiment results
 mlflow ui --backend-store-uri sqlite:///mlflow.db
@@ -198,7 +224,7 @@ Push to main
     → Post full metrics summary to Actions log
 ```
 
-If accuracy drops below threshold the pipeline **fails and blocks the commit** — preventing model regressions from reaching production.
+If accuracy drops below threshold the pipeline **fails and blocks the commit** — preventing model regressions from reaching production. `drift_monitor.py` returns exit code 1 when retrain is recommended, ready to be wired in as a scheduled check.
 
 ---
 
@@ -223,7 +249,7 @@ If accuracy drops below threshold the pipeline **fails and blocks the commit** �
 
 **Python 3.11+**
 ```
-yfinance, pandas, numpy, scikit-learn
+yfinance, pandas, numpy, scipy, scikit-learn
 xgboost, onnxmltools, onnxruntime
 mlflow, seaborn, matplotlib
 ```
@@ -241,10 +267,12 @@ mlflow, seaborn, matplotlib
 - [x] MLflow experiment tracking and model comparison
 - [x] Docker containerization
 - [x] GitHub Actions CI/CD with accuracy validation gate
-- [x] Data drift detection — PSI + KS statistical tests, price-scale feature exclusion
+- [x] Data drift detection — PSI + KS tests, price-scale feature exclusion
+- [ ] Multi-agent financial report generation (LangGraph)
+- [ ] Real-time serving with FastAPI + Redis caching
+- [ ] Observability stack — Prometheus + Grafana
 - [ ] Live WebSocket feed (`runLive()` in C++)
 - [ ] Extend to multiple tickers (MSFT, GOOGL, TSLA)
-- [ ] Raspberry Pi edge deployment
 
 ---
 
