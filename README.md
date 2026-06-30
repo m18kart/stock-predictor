@@ -241,7 +241,7 @@ mlflow, seaborn, matplotlib
 - [x] MLflow experiment tracking and model comparison
 - [x] Docker containerization
 - [x] GitHub Actions CI/CD with accuracy validation gate
-- [ ] Data drift detection with Evidently
+- [x] Data drift detection — PSI + KS statistical tests, price-scale feature exclusion
 - [ ] Live WebSocket feed (`runLive()` in C++)
 - [ ] Extend to multiple tickers (MSFT, GOOGL, TSLA)
 - [ ] Raspberry Pi edge deployment
